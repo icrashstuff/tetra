@@ -55,21 +55,38 @@
 
 #include "tetra/gui/console.h"
 #include "tetra/gui/gui_registrar.h"
+#include "tetra/gui/proggy_tiny.cpp"
 #include "tetra/gui/styles.h"
 
-SDL_Window* tetra::window;
-SDL_GLContext tetra::gl_context;
+SDL_Window* tetra::window = NULL;
+SDL_GLContext tetra::gl_context = NULL;
+
+static ImGuiContext* im_ctx_default = NULL;
+static ImGuiContext* im_ctx_overlay = NULL;
 
 static bool was_init = false;
 static bool was_init_gui = false;
 static bool was_deinit = false;
 
-static convar_int_t dev("dev", 0, 0, 1, "Enables developer focused features", CONVAR_FLAG_HIDDEN | CONVAR_FLAG_INT_IS_BOOL);
+static convar_int_t gfx_debug_gl("gfx_debug_gl", 0, 0, 1, "Sets SDL_GL_CONTEXT_DEBUG_FLAG", CONVAR_FLAG_DEV_ONLY);
 
 static convar_int_t gui_fps_limiter("gui_fps_limiter", 300, 0, SDL_MAX_SINT32 - 1, "Max FPS, 0 to disable", CONVAR_FLAG_SAVE);
 static convar_int_t gui_vsync("gui_vsync", 1, 0, 1, "Enable/Disable vsync", CONVAR_FLAG_INT_IS_BOOL | CONVAR_FLAG_SAVE);
 static convar_int_t gui_adapative_vsync("gui_adapative_vsync", 1, 0, 1, "Enable disable adaptive vsync", CONVAR_FLAG_INT_IS_BOOL | CONVAR_FLAG_SAVE);
 static convar_int_t gui_show_demo_window("gui_show_demo_window", 0, 0, 1, "Show Dear ImGui demo window", CONVAR_FLAG_INT_IS_BOOL);
+
+ImFont* dev_console::overlay_font = NULL;
+
+std::atomic<float> dev_console::add_log_font_width = { 7.0f };
+
+/**
+ * Calculate a new value for dev_console::add_log_font_width by dividing the width of the string by it's length and adding some padding
+ */
+static void calc_dev_font_width(const char* str)
+{
+    float len = SDL_utf8strlen(str);
+    dev_console::add_log_font_width = (ImGui::CalcTextSize(str).x / len) + ImGui::GetStyle().ItemSpacing.x * 2;
+}
 
 void tetra::init(const char* organization, const char* appname, int argc, const char** argv)
 {
@@ -90,19 +107,28 @@ void tetra::init(const char* organization, const char* appname, int argc, const 
     /* Parse command line */
     cli_parser::parse(argc, argv);
 
-    /* Set dev before any other variables in case their callbacks require dev */
-    if (cli_parser::get_value(dev.get_name()))
-        dev.set(1);
-    dev.set_pre_callback([=](int, int) -> bool { return false; });
+    {
+        convar_int_t* dev = (convar_int_t*)convar_t::get_convar("dev");
 
-    if (dev.get())
+        /* Set dev before any other variables in case their callbacks require dev */
+        if (cli_parser::get_value(dev->get_name()))
+            dev->set(1);
+        dev->set_pre_callback([=](int, int) -> bool { return false; });
+    }
+
+    if (convar_t::dev())
     {
         /* KDevelop fully buffers the output and will not display anything */
         setvbuf(stdout, NULL, _IONBF, 0);
         setvbuf(stderr, NULL, _IONBF, 0);
-        fflush_unlocked(stdout);
-        fflush_unlocked(stderr);
+        fflush(stdout);
+        fflush(stderr);
         dc_log("Developer convar set");
+
+        convar_int_t* console_overlay = (convar_int_t*)convar_t::get_convar("console_overlay");
+
+        if (console_overlay)
+            console_overlay->set(3);
     }
 
     PHYSFS_init(argv[0]);
@@ -137,16 +163,18 @@ int tetra::init_gui(const char* window_title)
     if (!gamepad_was_init)
         dc_log_error("Error: Unable to initialize SDL Gamepad Subsystem:\n%s\n", SDL_GetError());
 
-        // Decide GL+GLSL versions
+    // Decide GL+GLSL versions
+    const char* glsl_version = "#version 150";
 #if defined(SDL_PLATFORM_APPLE)
-    // GL 3.2 Core + GLSL 150
-    const char* glsl_version = "#version 150";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
+    SDL_GLContextFlag sdl_gl_context_flags = SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG; // Always required on Mac (According to Dear ImGui)
 #else
-    // GL 3.0 + GLSL 130
-    const char* glsl_version = "#version 150";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GLContextFlag sdl_gl_context_flags = 0;
 #endif
+
+    if (gfx_debug_gl.get())
+        sdl_gl_context_flags |= SDL_GL_CONTEXT_DEBUG_FLAG;
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, sdl_gl_context_flags);
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
@@ -158,7 +186,7 @@ int tetra::init_gui(const char* window_title)
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
     Uint32 window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN;
 
-    if (dev.get())
+    if (convar_t::dev())
         window_flags &= ~SDL_WINDOW_RESIZABLE;
 
     window = SDL_CreateWindow(window_title, 1280, 720, window_flags);
@@ -171,7 +199,7 @@ int tetra::init_gui(const char* window_title)
     SDL_ShowWindow(window);
 
     /* This weirdness is to trick DWM into making the window floating */
-    if (dev.get())
+    if (convar_t::dev())
         SDL_SetWindowResizable(window, true);
 
     gl_context = SDL_GL_CreateContext(window);
@@ -189,7 +217,7 @@ int tetra::init_gui(const char* window_title)
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
+    im_ctx_default = ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
@@ -200,8 +228,25 @@ int tetra::init_gui(const char* window_title)
     style_colors_rotate_hue(0, 160, 1, 1);
 
     // Setup Platform/Renderer backends
-    ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
-    ImGui_ImplOpenGL3_Init(glsl_version);
+    if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_context))
+        util::die("Failed to initialize Dear Imgui SDL2 backend\n");
+    if (!ImGui_ImplOpenGL3_Init(glsl_version))
+        util::die("Failed to initialize Dear Imgui OpenGL3 backend\n");
+    io.Fonts->AddFontDefault();
+    ImFontConfig dc_overlay_fcfg;
+    strncpy(dc_overlay_fcfg.Name, "Proggy Tiny 10px", IM_ARRAYSIZE(dc_overlay_fcfg.Name));
+    dev_console::overlay_font = io.Fonts->AddFontFromMemoryCompressedBase85TTF(proggy_tiny_compressed_data_base85, 10.0f, &dc_overlay_fcfg);
+
+    im_ctx_overlay = ImGui::CreateContext(io.Fonts);
+    {
+        ImGui::SetCurrentContext(im_ctx_overlay);
+        ImGui::GetIO().IniFilename = NULL;
+        if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_context))
+            util::die("Failed to initialize Dear Imgui SDL2 backend\n");
+        if (!ImGui_ImplOpenGL3_Init(glsl_version))
+            util::die("Failed to initialize Dear Imgui OpenGL3 backend\n");
+    }
+    ImGui::SetCurrentContext(im_ctx_default);
 
     return 0;
 }
@@ -237,6 +282,12 @@ int tetra::start_frame(bool event_loop)
         done = process_event(event);
 
     // Start the Dear ImGui frame
+    ImGui::SetCurrentContext(im_ctx_overlay);
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::SetCurrentContext(im_ctx_default);
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
@@ -260,19 +311,28 @@ void tetra::end_frame(bool clear_frame)
     }
 
     gui_registrar::render_menus();
-    gui_registrar::render_overlays();
 
     dev_console::render();
 
     // Rendering
-    ImGui::Render();
     if (clear_frame)
     {
         glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
     }
+    ImGui::SetCurrentContext(im_ctx_default);
+    ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    ImGui::SetCurrentContext(im_ctx_overlay);
+    gui_registrar::render_overlays();
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    ImGui::SetCurrentContext(im_ctx_default);
+
+    calc_dev_font_width("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~");
+
     SDL_GL_SwapWindow(window);
 
     Uint64 now = SDL_GetTicks();
