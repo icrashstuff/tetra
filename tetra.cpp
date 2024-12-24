@@ -241,6 +241,10 @@ int tetra::init_gui(const char* window_title)
     {
         ImGui::SetCurrentContext(im_ctx_overlay);
         ImGui::GetIO().IniFilename = NULL;
+        ImGui::GetIO().ConfigFlags = ImGuiConfigFlags_None;
+        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouse;
+        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoKeyboard;
+        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
         if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_context))
             util::die("Failed to initialize Dear Imgui SDL2 backend\n");
         if (!ImGui_ImplOpenGL3_Init(glsl_version))
@@ -255,6 +259,8 @@ bool tetra::process_event(SDL_Event event)
 {
     if (!was_init_gui)
         return false;
+
+    ImGui::SetCurrentContext(im_ctx_default);
 
     ImGui_ImplSDL3_ProcessEvent(&event);
 
