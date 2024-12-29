@@ -372,6 +372,12 @@ void tetra::deinit()
 
     if (was_init_gui)
     {
+        ImGui::SetCurrentContext(im_ctx_overlay);
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplSDL3_Shutdown();
+        ImGui::DestroyContext();
+
+        ImGui::SetCurrentContext(im_ctx_default);
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
