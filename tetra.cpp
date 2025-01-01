@@ -323,7 +323,7 @@ int tetra::start_frame(bool event_loop)
     bool done = false;
 
     SDL_Event event;
-    while (event_loop && done && SDL_PollEvent(&event))
+    while (event_loop && !done && SDL_PollEvent(&event))
         done = process_event(event);
 
     // Start the Dear ImGui frame
