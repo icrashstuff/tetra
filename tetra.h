@@ -33,6 +33,20 @@ namespace tetra
  */
 void init(const char* organization, const char* appname, int argc, const char** argv);
 
+enum render_api_t
+{
+    RENDER_API_GL_CORE,
+    RENDER_API_GL_COMPATIBILITY,
+    RENDER_API_GL_ES,
+};
+
+/**
+ * Set render api and version for tetra to use
+ * 
+ * NOTE: No checks are made for invalid variables
+ */
+void set_render_api(render_api_t api, int major, int minor);
+
 /**
  * Returns 0 on successful init, some non-zero value on failure
  *

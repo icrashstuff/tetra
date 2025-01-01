@@ -68,6 +68,10 @@ static bool was_init = false;
 static bool was_init_gui = false;
 static bool was_deinit = false;
 
+static tetra::render_api_t render_api = tetra::RENDER_API_GL_CORE;
+static int render_api_version_major = 3;
+static int render_api_version_minor = 3;
+
 static convar_int_t gfx_debug_gl("gfx_debug_gl", 0, 0, 1, "Sets SDL_GL_CONTEXT_DEBUG_FLAG", CONVAR_FLAG_DEV_ONLY);
 
 static convar_int_t gui_fps_limiter("gui_fps_limiter", 300, 0, SDL_MAX_SINT32 - 1, "Max FPS, 0 to disable", CONVAR_FLAG_SAVE);
@@ -146,6 +150,15 @@ void tetra::init(const char* organization, const char* appname, int argc, const 
         dc_log("Supported archive: [%s]", supported_archives[i]->extension);
 }
 
+void tetra::set_render_api(render_api_t api, int major, int minor)
+{
+    if (was_init_gui)
+        return;
+    render_api = api;
+    render_api_version_major = major;
+    render_api_version_minor = minor;
+}
+
 int tetra::init_gui(const char* window_title)
 {
     if (was_init_gui || !was_init)
@@ -163,9 +176,7 @@ int tetra::init_gui(const char* window_title)
     if (!gamepad_was_init)
         dc_log_error("Error: Unable to initialize SDL Gamepad Subsystem:\n%s\n", SDL_GetError());
 
-    // Decide GL+GLSL versions
-    const char* glsl_version = "#version 150";
-#if defined(SDL_PLATFORM_APPLE)
+#if defined(__APPLE__)
     SDL_GLContextFlag sdl_gl_context_flags = SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG; // Always required on Mac (According to Dear ImGui)
 #else
     SDL_GLContextFlag sdl_gl_context_flags = 0;
@@ -176,9 +187,37 @@ int tetra::init_gui(const char* window_title)
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, sdl_gl_context_flags);
 
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    if (render_api == RENDER_API_GL_CORE)
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    else if (render_api == RENDER_API_GL_COMPATIBILITY)
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    else if (render_api == RENDER_API_GL_ES)
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+
+    const char* imgui_glsl_version = NULL;
+#if defined(__APPLE__)
+    imgui_glsl_version = "#version 150";
+#else
+    if (render_api == RENDER_API_GL_ES)
+    {
+        if (render_api_version_major < 3)
+            imgui_glsl_version = "#version 100";
+        else
+            imgui_glsl_version = "#version 300 es";
+    }
+    else
+    {
+        if (render_api_version_major > 3)
+            imgui_glsl_version = "#version 410";
+        else if (render_api_version_minor < 3)
+            imgui_glsl_version = "#version 120";
+        else
+            imgui_glsl_version = "#version 150";
+    }
+#endif
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, render_api_version_major);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, render_api_version_minor);
 
     // Create window with graphics context
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -230,7 +269,7 @@ int tetra::init_gui(const char* window_title)
     // Setup Platform/Renderer backends
     if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_context))
         util::die("Failed to initialize Dear Imgui SDL2 backend\n");
-    if (!ImGui_ImplOpenGL3_Init(glsl_version))
+    if (!ImGui_ImplOpenGL3_Init(imgui_glsl_version))
         util::die("Failed to initialize Dear Imgui OpenGL3 backend\n");
     io.Fonts->AddFontDefault();
     ImFontConfig dc_overlay_fcfg;
@@ -247,7 +286,7 @@ int tetra::init_gui(const char* window_title)
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
         if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_context))
             util::die("Failed to initialize Dear Imgui SDL2 backend\n");
-        if (!ImGui_ImplOpenGL3_Init(glsl_version))
+        if (!ImGui_ImplOpenGL3_Init(imgui_glsl_version))
             util::die("Failed to initialize Dear Imgui OpenGL3 backend\n");
     }
     ImGui::SetCurrentContext(im_ctx_default);

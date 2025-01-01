@@ -6,17 +6,7 @@ cmake_policy(SET CMP0077 NEW)
 project(tetra)
 
 option(ENABLE_NATIVE_OPTIMIZATION "Enable native CPU specific compiler optimizations" OFF)
-option(ENABLE_NATIVE_FILE_DIALOG "Enable Native File Dialog" OFF)
-
-if(ENABLE_NATIVE_OPTIMIZATION AND NOT MSVC)
-    add_compile_options(-march=native -mtune=native)
-endif()
-
 option(DISABLE_STACK_PROTECTOR "Useful for finding out where stack smashing is occurring (Debug builds only)" OFF )
-if(DISABLE_STACK_PROTECTOR AND "${CMAKE_BUILD_TYPE}" STREQUAL "Debug" AND NOT MSVC)
-    message(WARNING "Disabling stack protector")
-    add_compile_options(-fno-stack-protector)
-endif()
 
 # We don't necessarily have to disable most of the archivers but we also don't need them either
 set(PHYSFS_BUILD_SHARED FALSE)
@@ -91,6 +81,15 @@ function (add_tetra_executable target_name target_SRC)
     # If you ever need to find a flag to warn for specific behavior:
     # the clang flag -Weverything is useful for finding them
     target_compile_options(${target_name} PUBLIC -Wshadow)
+
+    if(ENABLE_NATIVE_OPTIMIZATION AND NOT MSVC)
+        target_compile_options(${target_name} PRIVATE -march=native -mtune=native)
+    endif()
+
+    if(DISABLE_STACK_PROTECTOR AND "${CMAKE_BUILD_TYPE}" STREQUAL "Debug" AND NOT MSVC)
+        message(WARNING "Disabling stack protector")
+        target_compile_options(${target_name} PRIVATE -fno-stack-protector)
+    endif()
 
     target_link_libraries(${target_name} OpenGL::GL)
     target_link_libraries(${target_name} OpenGL::GLU)
