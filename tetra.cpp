@@ -35,15 +35,14 @@
 #include "gui/imgui.h"
 #include <SDL3/SDL.h>
 #include <stdio.h>
+
+#include <GL/glew.h>
+#include <GL/glu.h>
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <SDL3/SDL_opengles2.h>
+#warning "OpenGL ES is untested"
 #else
 #include <SDL3/SDL_opengl.h>
-#endif
-
-// This example doesn't compile with Emscripten yet! Awaiting SDL3 support.
-#ifdef __EMSCRIPTEN__
-#include "../libs/emscripten/emscripten_mainloop_stub.h"
 #endif
 
 #include "tetra.h"
@@ -92,7 +91,7 @@ static void calc_dev_font_width(const char* str)
     dev_console::add_log_font_width = (ImGui::CalcTextSize(str).x / len) + ImGui::GetStyle().ItemSpacing.x * 2;
 }
 
-void tetra::init(const char* organization, const char* appname, int argc, const char** argv)
+void tetra::init(const char* organization, const char* appname, const char* cfg_path_prefix, int argc, const char** argv)
 {
     if (was_init)
         return;
@@ -139,6 +138,7 @@ void tetra::init(const char* organization, const char* appname, int argc, const 
     PHYSFS_setSaneConfig(organization, appname, NULL, 0, 0);
 
     /* Set convars from config */
+    convar_file_parser::set_config_prefix(cfg_path_prefix);
     convar_file_parser::read();
 
     /* Set convars from command line */
@@ -165,6 +165,8 @@ int tetra::init_gui(const char* window_title)
         return 0;
 
     dc_log("Init gui");
+
+    Uint64 start_tick = SDL_GetTicksNS();
 
     was_init_gui = true;
 
@@ -194,28 +196,6 @@ int tetra::init_gui(const char* window_title)
     else if (render_api == RENDER_API_GL_ES)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 
-    const char* imgui_glsl_version = NULL;
-#if defined(__APPLE__)
-    imgui_glsl_version = "#version 150";
-#else
-    if (render_api == RENDER_API_GL_ES)
-    {
-        if (render_api_version_major < 3)
-            imgui_glsl_version = "#version 100";
-        else
-            imgui_glsl_version = "#version 300 es";
-    }
-    else
-    {
-        if (render_api_version_major > 3)
-            imgui_glsl_version = "#version 410";
-        else if (render_api_version_minor < 3)
-            imgui_glsl_version = "#version 120";
-        else
-            imgui_glsl_version = "#version 150";
-    }
-#endif
-
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, render_api_version_major);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, render_api_version_minor);
 
@@ -234,7 +214,20 @@ int tetra::init_gui(const char* window_title)
 
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
     gl_context = SDL_GL_CreateContext(window);
-    SDL_GL_MakeCurrent(window, gl_context);
+    SDL_GL_MakeCurrent(tetra::window, tetra::gl_context);
+
+    dc_log("Init GLEW");
+    GLenum glewError = glewInit();
+    if (glewError != GLEW_OK)
+        util::die("Error: Unable to initialize GLEW! (%s)\n", glewGetErrorString(glewError));
+
+    dc_log("OpenGL info");
+    dc_log("*** GL Vendor:     %s ***", glGetString(GL_VENDOR));
+    dc_log("*** GL Version:    %s ***", glGetString(GL_VERSION));
+    dc_log("*** GL Renderer:   %s ***", glGetString(GL_RENDERER));
+    dc_log("*** GLEW Version:  %s ***", glewGetString(GLEW_VERSION));
+    dc_log("*** GLSL Version:  %s ***", glGetString(GL_SHADING_LANGUAGE_VERSION));
+
     SDL_ShowWindow(window);
 
     /* This weirdness is to trick DWM into making the window floating */
@@ -266,6 +259,34 @@ int tetra::init_gui(const char* window_title)
 
     style_colors_rotate_hue(0, 160, 1, 1);
 
+    glGetIntegerv(GL_MAJOR_VERSION, &render_api_version_major);
+    glGetIntegerv(GL_MINOR_VERSION, &render_api_version_minor);
+
+    const char* suffix = "";
+    char imgui_glsl_version[128];
+    int glsl_major = render_api_version_major;
+    int glsl_minor = render_api_version_minor;
+
+    if (glsl_major == 2)
+    {
+        glsl_major = 1;
+        glsl_minor += 1;
+    }
+    else if (render_api != RENDER_API_GL_ES && glsl_major == 3 && glsl_minor < 3)
+    {
+        glsl_major = 1;
+        glsl_minor += 3;
+    }
+
+    if (render_api == RENDER_API_GL_ES && glsl_major > 2)
+        suffix = " es";
+    if (render_api == RENDER_API_GL_CORE && glsl_major > 2)
+        suffix = " core";
+
+    snprintf(imgui_glsl_version, SDL_arraysize(imgui_glsl_version), "#version %d%d0%s", glsl_major, glsl_minor, suffix);
+
+    dc_log_trace("Dear ImGui glsl version string: \"%s\"", imgui_glsl_version);
+
     // Setup Platform/Renderer backends
     if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_context))
         util::die("Failed to initialize Dear Imgui SDL2 backend\n");
@@ -290,6 +311,8 @@ int tetra::init_gui(const char* window_title)
             util::die("Failed to initialize Dear Imgui OpenGL3 backend\n");
     }
     ImGui::SetCurrentContext(im_ctx_default);
+
+    dc_log("Init gui finished in %.1f ms", ((SDL_GetTicksNS() - start_tick) / 100000) / 10.0f);
 
     return 0;
 }

@@ -31,7 +31,7 @@ namespace tetra
 /**
  * Should be called immediately, Can only be called once
  */
-void init(const char* organization, const char* appname, int argc, const char** argv);
+void init(const char* organization, const char* appname, const char* cfg_path, int argc, const char** argv);
 
 enum render_api_t
 {
