@@ -58,7 +58,7 @@ set(tetra_SRC
     ${TETRA_DIR}/util/convar.cpp
     ${TETRA_DIR}/util/cli_parser.cpp
     ${TETRA_DIR}/util/convar_file.cpp
-    
+
     ${imgui_SRC}
     PARENT_SCOPE
 )

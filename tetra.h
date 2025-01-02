@@ -42,7 +42,7 @@ enum render_api_t
 
 /**
  * Set render api and version for tetra to use
- * 
+ *
  * NOTE: No checks are made for invalid variables
  */
 void set_render_api(render_api_t api, int major, int minor);
