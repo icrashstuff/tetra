@@ -19,6 +19,55 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
+ *
+ * Basic example program:
+ * main.cpp
+ * ========
+ * #include "tetra/gui/imgui-1.91.1/imgui.h"
+ * #include "tetra/tetra.h"
+ * int main(const int argc, const char** argv)
+ * {
+ *     tetra::init("icrashstuff", "Tetra example", "config_prefix", argc, argv);
+ *
+ *     tetra::set_render_api(tetra::RENDER_API_GL_CORE, 3, 0);
+ *
+ *     tetra::init_gui("Hello World");
+ *
+ *     int done = 0;
+ *     while (!done)
+ *     {
+ *         tetra::start_frame();
+ *
+ *         ImGui::Begin("Hello");
+ *         ImGui::Text("Hello world from tetra!");
+ *         ImGui::End();
+ *
+ *         tetra::end_frame();
+ *     }
+ *
+ *     tetra::deinit();
+ *     SDL_Quit();
+ * }
+ *
+ * CMakeLists.txt
+ * ==============
+ * cmake_minimum_required(VERSION 3.27)
+ *
+ * # Make option() honor normal variables
+ * cmake_policy(SET CMP0077 NEW)
+ *
+ * project(tetra_example)
+ *
+ * set(CMAKE_INCLUDE_CURRENT_DIR ON)
+ * set(tetra_example_SRC
+ *     main.cpp
+ * )
+ *
+ * # Tetra must be in the "tetra" subfolder
+ * add_subdirectory(tetra/)
+ *
+ * # If you don't use quotes around ${your_app_here_SRC} then the executable won't build
+ * add_tetra_executable(tetra_example "${tetra_example_SRC}")
  */
 
 #ifndef MCS_B181_TETRA_H
@@ -42,6 +91,8 @@ enum render_api_t
 
 /**
  * Set render api and version for tetra to use
+ *
+ * Must be called before tetra::init_gui()
  *
  * NOTE: No checks are made for invalid variables
  */
@@ -77,6 +128,8 @@ void end_frame(bool clear_frame = true);
 
 /**
  * Deinit tetra, can only be called once
+ *
+ * NOTE: This does *NOT* call SDL_Quit()
  */
 void deinit();
 
